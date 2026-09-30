@@ -415,7 +415,7 @@ def get_user_activity(database_url: str, user_id: int, limit: int = 50) -> list[
             'favorite': bool(row['favorite']),
             'watched': bool(row['watched']),
             'rating': row['rating'],
-            'timestamp': row['timestamp'],
+            'timestamp': str(row['timestamp']),
         })
     for row in review_rows:
         activity.append({
@@ -426,7 +426,7 @@ def get_user_activity(database_url: str, user_id: int, limit: int = 50) -> list[
             '_poster': row['_poster'],
             'Poster': row['Poster'],
             'review': row['review'],
-            'timestamp': row['timestamp'],
+            'timestamp': str(row['timestamp']),
         })
     activity.sort(key=lambda item: item['timestamp'], reverse=True)
     return activity[:limit]
@@ -621,7 +621,7 @@ def get_household_activity(database_url: str, usernames: tuple[str, ...], limit:
             'favorite': bool(row['favorite']),
             'watched': bool(row['watched']),
             'rating': row['rating'],
-            'timestamp': row['timestamp'],
+            'timestamp': str(row['timestamp']),
         })
     for row in review_rows:
         activity.append({
@@ -633,7 +633,7 @@ def get_household_activity(database_url: str, usernames: tuple[str, ...], limit:
             'Poster': row['Poster'],
             'display_name': row['display_name'],
             'review': row['review'],
-            'timestamp': row['timestamp'],
+            'timestamp': str(row['timestamp']),
         })
     activity.sort(key=lambda item: item['timestamp'], reverse=True)
     return activity[:limit]
