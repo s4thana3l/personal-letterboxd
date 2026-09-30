@@ -42,7 +42,10 @@ def migrate():
                 '''
                 INSERT INTO users (id, username, display_name, password_hash, created_at)
                 VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT(id) DO NOTHING
+                ON CONFLICT(username) DO UPDATE SET
+                    display_name = EXCLUDED.display_name,
+                    password_hash = EXCLUDED.password_hash,
+                    created_at = EXCLUDED.created_at
                 ''',
                 (row['id'], row['username'], row['display_name'], row['password_hash'], row['created_at'])
             )
@@ -71,38 +74,49 @@ def migrate():
         pg_conn.commit()
         print("✓ Movies migrados")
 
-        # Migrar user_movies
+        # Migrar user_movies (ignorar se user não existe)
         print("Migrando user_movies...")
         sqlite_cursor.execute('SELECT * FROM user_movies')
         for row in sqlite_cursor.fetchall():
-            pg_cursor.execute(
-                '''
-                INSERT INTO user_movies (
-                    user_id, tmdb_id, favorite, watched, rating, created_at, updated_at
+            try:
+                pg_cursor.execute(
+                    '''
+                    INSERT INTO user_movies (
+                        user_id, tmdb_id, favorite, watched, rating, created_at, updated_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT(user_id, tmdb_id) DO UPDATE SET
+                        favorite = EXCLUDED.favorite, watched = EXCLUDED.watched,
+                        rating = EXCLUDED.rating, updated_at = EXCLUDED.updated_at
+                    ''',
+                    (
+                        row['user_id'], row['tmdb_id'], row['favorite'], row['watched'],
+                        row['rating'], row['created_at'], row['updated_at']
+                    )
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT(user_id, tmdb_id) DO NOTHING
-                ''',
-                (
-                    row['user_id'], row['tmdb_id'], row['favorite'], row['watched'],
-                    row['rating'], row['created_at'], row['updated_at']
-                )
-            )
+            except psycopg2.IntegrityError:
+                pg_conn.rollback()
+                pass
         pg_conn.commit()
         print("✓ User_movies migrados")
 
-        # Migrar reviews
+        # Migrar reviews (ignorar se user não existe)
         print("Migrando reviews...")
         sqlite_cursor.execute('SELECT * FROM reviews')
         for row in sqlite_cursor.fetchall():
-            pg_cursor.execute(
-                '''
-                INSERT INTO reviews (id, user_id, tmdb_id, body, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT(id) DO NOTHING
-                ''',
-                (row['id'], row['user_id'], row['tmdb_id'], row['body'], row['created_at'], row['updated_at'])
-            )
+            try:
+                pg_cursor.execute(
+                    '''
+                    INSERT INTO reviews (id, user_id, tmdb_id, body, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT(user_id, tmdb_id) DO UPDATE SET
+                        body = EXCLUDED.body, updated_at = EXCLUDED.updated_at
+                    ''',
+                    (row['id'], row['user_id'], row['tmdb_id'], row['body'], row['created_at'], row['updated_at'])
+                )
+            except psycopg2.IntegrityError:
+                pg_conn.rollback()
+                pass
         pg_conn.commit()
         print("✓ Reviews migrados")
 
