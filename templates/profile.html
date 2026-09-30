@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <!-- # w Configuração da tela de perfil -->
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Perfil - Meu Letterboxd pessoal</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <!-- # w Conteúdo principal do perfil: identidade + estatísticas -->
+  <div class="collection-page">
+    <header class="collection-page-header">
+      <div>
+        <a class="back-link" href="/home">← Voltar para descobrir filmes</a>
+        <p class="eyebrow">Meu espaço</p>
+        <h1>{{ profile.display_name }}</h1>
+        <p class="intro">
+          Usuário <strong>{{ profile.username }}</strong>
+          · conta criada em {{ profile.created_at }}
+        </p>
+      </div>
+      <a href="/perfil/conta" class="collection-primary-link">Gerenciar conta →</a>
+    </header>
+
+    <h2 class="stats-section-title">Seus números</h2>
+    {% if stats.watched_count == 0 %}
+      <div class="collection-empty-page">
+        <span class="empty-state-icon">◌</span>
+        <h2>Você ainda não marcou nenhum filme como assistido</h2>
+        <p>Assim que você assistir e avaliar filmes, suas estatísticas aparecem aqui.</p>
+        <a href="/home" class="collection-primary-link">Descobrir filmes</a>
+      </div>
+    {% else %}
+      <div class="stat-grid">
+        <div class="stat-tile">
+          <span class="stat-tile-label">Assistidos</span>
+          <strong class="stat-tile-value">{{ stats.watched_count }}</strong>
+        </div>
+        <div class="stat-tile">
+          <span class="stat-tile-label">Favoritos</span>
+          <strong class="stat-tile-value">{{ stats.favorite_count }}</strong>
+        </div>
+        <div class="stat-tile">
+          <span class="stat-tile-label">Reviews escritas</span>
+          <strong class="stat-tile-value">{{ stats.review_count }}</strong>
+        </div>
+        <div class="stat-tile">
+          <span class="stat-tile-label">Nota média</span>
+          <strong class="stat-tile-value">{{ '%.1f'|format(stats.average_rating) if stats.average_rating is not none else '—' }}</strong>
+        </div>
+        <div class="stat-tile">
+          <span class="stat-tile-label">Gênero favorito</span>
+          <strong class="stat-tile-value stat-tile-value-text">{{ stats.top_genre.name if stats.top_genre else '—' }}</strong>
+        </div>
+        <div class="stat-tile">
+          <span class="stat-tile-label">Década favorita</span>
+          <strong class="stat-tile-value stat-tile-value-text">{{ stats.top_decade.name if stats.top_decade else '—' }}</strong>
+        </div>
+        {% if stats.best_movie %}
+        <div class="stat-tile">
+          <span class="stat-tile-label">Melhor avaliado por você</span>
+          <strong class="stat-tile-value stat-tile-value-text">{{ stats.best_movie.Title }}</strong>
+          <span class="stat-tile-sub">{{ stats.best_movie.rating }}/5</span>
+        </div>
+        {% endif %}
+        {% if stats.worst_movie %}
+        <div class="stat-tile">
+          <span class="stat-tile-label">Pior avaliado por você</span>
+          <strong class="stat-tile-value stat-tile-value-text">{{ stats.worst_movie.Title }}</strong>
+          <span class="stat-tile-sub">{{ stats.worst_movie.rating }}/5</span>
+        </div>
+        {% endif %}
+      </div>
+    {% endif %}
+
+    <h2 class="stats-section-title">Comparando com a casa</h2>
+
+    <h3 class="stats-subsection-title">Quem assistiu mais</h3>
+    <ol class="stats-ranking">
+      {% for row in household.per_user_counts %}
+        <li>
+          <span class="stats-ranking-name">{{ row.display_name }}</span>
+          <span class="stats-ranking-detail">{{ row.watched_count }} assistidos · {{ row.favorite_count }} favoritos</span>
+        </li>
+      {% endfor %}
+    </ol>
+
+    <h3 class="stats-subsection-title">Filmes em comum</h3>
+    {% if household.shared_movies %}
+      <ul class="stats-list">
+        {% for movie in household.shared_movies %}
+          <li>
+            <span class="stats-list-title">{{ movie.Title }}</span>
+            <span class="stats-list-detail">assistido por {{ movie.watchers|join(', ') }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="stats-empty-text">Ainda não há filmes assistidos por mais de uma pessoa.</p>
+    {% endif %}
+
+    <h3 class="stats-subsection-title">Onde vocês mais discordam</h3>
+    {% if household.divergent_ratings %}
+      <ul class="stats-list">
+        {% for movie in household.divergent_ratings %}
+          <li>
+            <span class="stats-list-title">{{ movie.Title }}</span>
+            <span class="stats-list-detail">
+              {% for name, rating in movie.ratings.items() %}{{ name }}: {{ rating }}/5{{ ', ' if not loop.last else '' }}{% endfor %}
+              (diferença de {{ movie.difference }})
+            </span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="stats-empty-text">Ainda não há notas suficientes em comum para comparar.</p>
+    {% endif %}
+  </div>
+
+  <!-- # w Navegação lateral compartilhada entre as páginas -->
+  <aside id="sidebar-preview" class="sidebar-collapsed">
+    <button class="sidebar-toggle" type="button" aria-label="Abrir menu da coleção" aria-expanded="false">
+      <span class="sidebar-brand">{{ session.get('username', 'usuário')[:1]|upper }}</span>
+      <span class="sidebar-toggle-icon" aria-hidden="true">›</span>
+    </button>
+    <div class="sidebar-content">
+      <span class="sidebar-kicker">Meu espaço</span>
+      <strong>Olá, {{ session.get('username', 'usuário') }}</strong>
+      <nav aria-label="Navegação da coleção">
+        <a class="collection-link" href="/favoritos">☆ Favoritos</a>
+        <a class="collection-link" href="/assistidos">◷ Assistidos</a>
+        <a class="collection-link" href="/reviews">✎ Reviews</a>
+        <a class="collection-link" href="/atividade">◔ Atividade</a>
+        <a class="collection-link" href="/perfil">☺ Perfil</a>
+        <a class="collection-link" href="/logout">↪ Sair</a>
+      </nav>
+    </div>
+  </aside>
+
+  <script>
+    // # w Abre ou fecha a navegação lateral compartilhada.
+    (() => {
+      const sidebar = document.getElementById('sidebar-preview');
+      const toggle = document.querySelector('.sidebar-toggle');
+      toggle.addEventListener('click', () => {
+        const isOpen = sidebar.classList.toggle('sidebar-open');
+        toggle.setAttribute('aria-expanded', String(isOpen));
+      });
+    })();
+  </script>
+</body>
+</html>

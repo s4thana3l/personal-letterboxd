@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <!-- # w Configuração da página pessoal e carregamento dos estilos -->
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% if collection_type == 'favoritos' %}Favoritos{% elif collection_type == 'assistidos' %}Assistidos{% else %}Reviews{% endif %} - Meu Letterboxd pessoal</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body data-collection-type="{{ collection_type }}">
+  <!-- # w Conteúdo principal da coleção pessoal -->
+  <div id="collection-page" class="collection-page">
+    <header class="collection-page-header">
+      <div>
+        <a class="back-link" href="/home">← Voltar para descobrir filmes</a>
+        <p class="eyebrow">Meu espaço</p>
+        <h1 id="collection-title"></h1>
+        <p id="collection-description" class="intro"></p>
+      </div>
+      <span id="collection-count" class="collection-count">0 filmes</span>
+    </header>
+
+    <div class="collection-filters-bar" role="search" aria-label="Filtrar coleção">
+      <select id="filterGenre" aria-label="Filtrar por gênero">
+        <option value="">Todos os gêneros</option>
+      </select>
+      <select id="filterYear" aria-label="Filtrar por ano">
+        <option value="">Todos os anos</option>
+      </select>
+      <select id="filterRating" aria-label="Filtrar por nota pública mínima">
+        <option value="">Qualquer nota pública</option>
+        <option value="9">9+ ⭐ (TMDb)</option>
+        <option value="8">8+ ⭐ (TMDb)</option>
+        <option value="7">7+ ⭐ (TMDb)</option>
+        <option value="6">6+ ⭐ (TMDb)</option>
+      </select>
+    </div>
+
+    <main id="collection-content" class="collection-content" aria-live="polite"></main>
+    <div id="collection-pagination" class="collection-pagination"></div>
+  </div>
+
+  <!-- # w Navegação lateral compartilhada entre as páginas -->
+  <aside id="sidebar-preview" class="sidebar-collapsed">
+    <button class="sidebar-toggle" type="button" aria-label="Abrir menu da coleção" aria-expanded="false">
+      <span class="sidebar-brand">{{ session.get('username', 'usuário')[:1]|upper }}</span>
+      <span class="sidebar-toggle-icon" aria-hidden="true">›</span>
+    </button>
+    <div class="sidebar-content">
+      <span class="sidebar-kicker">Meu espaço</span>
+      <strong>Olá, {{ session.get('username', 'usuário') }}</strong>
+      <nav aria-label="Navegação da coleção">
+        <a class="collection-link" href="/favoritos">☆ Favoritos</a>
+        <a class="collection-link" href="/assistidos">◷ Assistidos</a>
+        <a class="collection-link" href="/reviews">✎ Reviews</a>
+        <a class="collection-link" href="/atividade">◔ Atividade</a>
+        <a class="collection-link" href="/perfil">☺ Perfil</a>
+        <a class="collection-link" href="/logout">↪ Sair</a>
+      </nav>
+    </div>
+  </aside>
+
+  <!-- # w Script responsável pela renderização da coleção -->
+  <script src="/static/collection.js"></script>
+</body>
+</html>

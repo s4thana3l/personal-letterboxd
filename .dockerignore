@@ -1,0 +1,12 @@
+.git
+.gitignore
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+.pytest_cache
+.DS_Store
+README.md
+DOCUMENTACAO_CONTEXTO_APLICACAO.md
+*.md

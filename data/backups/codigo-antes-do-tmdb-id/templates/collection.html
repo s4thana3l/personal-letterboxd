@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <!-- # w Configuração da página pessoal e carregamento dos estilos -->
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% if collection_type == 'favoritos' %}Favoritos{% else %}Assistidos{% endif %} - Meu Letterboxd pessoal</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body data-collection-type="{{ collection_type }}">
+  <!-- # w Conteúdo principal da coleção pessoal -->
+  <div id="collection-page" class="collection-page">
+    <header class="collection-page-header">
+      <div>
+        <a class="back-link" href="/home">← Voltar para descobrir filmes</a>
+        <p class="eyebrow">Meu espaço</p>
+        <h1 id="collection-title"></h1>
+        <p id="collection-description" class="intro"></p>
+      </div>
+      <span id="collection-count" class="collection-count">0 filmes</span>
+    </header>
+
+    <main id="collection-content" class="collection-content" aria-live="polite"></main>
+  </div>
+
+  <!-- # w Navegação lateral compartilhada entre as páginas -->
+  <aside id="sidebar-preview" class="sidebar-collapsed">
+    <button class="sidebar-toggle" type="button" aria-label="Abrir menu da coleção" aria-expanded="false">
+      <span class="sidebar-brand">{{ session.get('username', 'usuário')[:1]|upper }}</span>
+      <span class="sidebar-toggle-icon" aria-hidden="true">›</span>
+    </button>
+    <div class="sidebar-content">
+      <span class="sidebar-kicker">Meu espaço</span>
+      <strong>Olá, {{ session.get('username', 'usuário') }}</strong>
+      <nav aria-label="Navegação da coleção">
+        <a class="collection-link" href="/favoritos">☆ Favoritos</a>
+        <a class="collection-link" href="/assistidos">◷ Assistidos</a>
+        <button class="collection-filter" type="button" disabled>✎ Reviews</button>
+        <button class="collection-filter" type="button" disabled>◌ Estatísticas</button>
+        <a class="collection-link" href="/logout">↪ Sair</a>
+      </nav>
+    </div>
+  </aside>
+
+  <!-- # w Script responsável pela renderização da coleção -->
+  <script src="/static/collection.js"></script>
+</body>
+</html>

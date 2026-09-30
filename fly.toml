@@ -1,0 +1,36 @@
+# Fly.io configuration for apifilmes-web
+app = "apifilmes-web"
+primary_region = "sjc"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # w Flask roda em 0.0.0.0:8080 (padrão do Fly.io)
+  FLASK_HOST = "0.0.0.0"
+  FLASK_PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+
+# w Define volumes para dados persistentes (banco + cache de posters)
+[[mounts]]
+  source = "app_data"
+  destination = "/app/data"
+
+[[mounts]]
+  source = "poster_cache"
+  destination = "/app/cache/posters"
+
+# w Healthcheck para verificar se a aplicação está OK
+[checks]
+  [checks.http]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/login"
+    protocol = "http"
+    timeout = "5s"

@@ -1,0 +1,5 @@
+.venv/
+__pycache__/
+cache/posters/
+setup_ambiente.ps1
+data/*.sqlite3

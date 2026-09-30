@@ -1,0 +1,83 @@
+<!doctype html>
+<html>
+<head>
+  <!-- # Configuração básica da página e carregamento do CSS -->
+  <meta charset="utf-8" />
+  <title>Busca de Filmes</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <!-- # Estrutura principal da aplicação -->
+  <div id="container">
+    <!-- # w Cabeçalho da página -->
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Seu diário de cinema</p>
+        <h1>Meu Letterboxd pessoal.</h1>
+        <p class="intro">Pesquise filmes, descubra novos favoritos e monte sua própria coleção.</p>
+      </div>
+    </header>
+
+    <!-- # w Painel de busca e sugestões -->
+    <div class="search-panel">
+      <div class="search-heading">
+        <div>
+          <span class="section-kicker">Explorar catálogo</span>
+          <h2>O que você quer assistir?</h2>
+        </div>
+        <span class="search-icon" aria-hidden="true">⌕</span>
+      </div>
+      <div id="searchRow">
+        <select id="searchType" aria-label="Tipo de busca">
+          <option value="title">Título</option>
+          <option value="director">Diretor</option>
+        </select>
+        <input id="q" type="search" placeholder="Digite o nome do filme ou série..." autocomplete="on" />
+        <button id="btnSearch">Buscar</button>
+      </div>
+      <p class="search-hint">Comece a digitar e mostraremos sugestões para você.</p>
+      <div id="suggestions" data-search-style="cinema" aria-live="polite"></div>
+    </div>
+
+    <!-- # w Área de resultado com poster e informações do filme -->
+    <main id="result">
+      <div id="poster" class="poster-box">
+        <div class="poster-placeholder">
+          <span class="poster-placeholder-icon" aria-hidden="true">☆</span>
+          <strong>Seu próximo filme</strong>
+          <span>O poster aparecerá aqui</span>
+        </div>
+      </div>
+      <div id="info" class="info-box">
+        <div class="welcome-state">
+          <span class="welcome-icon" aria-hidden="true">○</span>
+          <h2>Comece sua descoberta</h2>
+          <p>Pesquise um filme acima para ver detalhes, elenco, sinopse e muito mais.</p>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- # w Navegação lateral recolhida da futura coleção pessoal -->
+  <aside id="sidebar-preview" class="sidebar-collapsed">
+    <button class="sidebar-toggle" type="button" aria-label="Abrir menu da coleção" aria-expanded="false">
+      <span class="sidebar-brand">{{ session.get('username', 'usuário')[:1]|upper }}</span>
+      <span class="sidebar-toggle-icon" aria-hidden="true">›</span>
+    </button>
+    <div class="sidebar-content">
+      <span class="sidebar-kicker">Meu espaço</span>
+      <strong>Olá, {{ session.get('username', 'usuário') }}</strong>
+      <nav aria-label="Navegação da coleção">
+        <a class="collection-link" href="/favoritos">☆ Favoritos</a>
+        <a class="collection-link" href="/assistidos">◷ Assistidos</a>
+        <button class="collection-filter" type="button" disabled>✎ Reviews</button>
+        <button class="collection-filter" type="button" disabled>◌ Estatísticas</button>
+        <a class="collection-link" href="/logout">↪ Sair</a>
+      </nav>
+    </div>
+  </aside>
+
+  <!-- # Script responsável pela interação da busca -->
+  <script src="/static/main.js"></script>
+</body>
+</html>

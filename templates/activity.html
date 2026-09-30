@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <!-- # w Configuração da página de histórico de atividade -->
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Atividade - Meu Letterboxd pessoal</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <!-- # w Conteúdo principal do histórico -->
+  <div class="collection-page">
+    <header class="collection-page-header">
+      <div>
+        <a class="back-link" href="/home">← Voltar para descobrir filmes</a>
+        <p class="eyebrow">Meu espaço</p>
+        <h1>Atividade recente</h1>
+        <p class="intro">O que mudou por último na sua coleção: favoritos, assistidos, notas e reviews.</p>
+      </div>
+      <span class="collection-count">{{ activity|length }} {{ 'registro' if activity|length == 1 else 'registros' }}</span>
+    </header>
+
+    {% if not activity %}
+      <div class="collection-empty-page">
+        <span class="empty-state-icon">◔</span>
+        <h2>Você ainda não tem atividade registrada</h2>
+        <p>Favorite, marque como assistido, avalie ou escreva uma review para começar seu histórico.</p>
+        <a href="/home" class="collection-primary-link">Descobrir filmes</a>
+      </div>
+    {% else %}
+      <ul class="activity-list">
+        {% for item in activity %}
+          <li class="activity-item">
+            <div class="activity-item-poster">
+              {% set poster = item._poster or item.Poster %}
+              {% if poster and poster != 'N/A' %}
+                <img src="{{ poster }}" alt="Poster de {{ item.Title }}" />
+              {% else %}
+                <span class="collection-card-placeholder">☆</span>
+              {% endif %}
+            </div>
+            <div class="activity-item-body">
+              <span class="activity-item-date">{{ item.timestamp[:16].replace('T', ' ') }}</span>
+              <h2><a href="/home?movie={{ item.tmdbID }}">{{ item.Title }}</a> <span class="activity-item-year">{{ item.Year or '' }}</span></h2>
+              {% if item.type == 'movie_state' %}
+                <div class="activity-item-badges">
+                  {% if item.favorite %}<span class="activity-badge">☆ Favorito</span>{% endif %}
+                  {% if item.watched %}<span class="activity-badge">◷ Assistido</span>{% endif %}
+                  {% if item.rating %}<span class="activity-badge">⭐ Nota {{ item.rating }}</span>{% endif %}
+                </div>
+              {% else %}
+                <span class="activity-badge">✎ Review</span>
+                <blockquote class="collection-card-review">“{{ item.review }}”</blockquote>
+              {% endif %}
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </div>
+
+  <!-- # w Navegação lateral compartilhada entre as páginas -->
+  <aside id="sidebar-preview" class="sidebar-collapsed">
+    <button class="sidebar-toggle" type="button" aria-label="Abrir menu da coleção" aria-expanded="false">
+      <span class="sidebar-brand">{{ session.get('username', 'usuário')[:1]|upper }}</span>
+      <span class="sidebar-toggle-icon" aria-hidden="true">›</span>
+    </button>
+    <div class="sidebar-content">
+      <span class="sidebar-kicker">Meu espaço</span>
+      <strong>Olá, {{ session.get('username', 'usuário') }}</strong>
+      <nav aria-label="Navegação da coleção">
+        <a class="collection-link" href="/favoritos">☆ Favoritos</a>
+        <a class="collection-link" href="/assistidos">◷ Assistidos</a>
+        <a class="collection-link" href="/reviews">✎ Reviews</a>
+        <a class="collection-link" href="/atividade">◔ Atividade</a>
+        <a class="collection-link" href="/perfil">☺ Perfil</a>
+        <a class="collection-link" href="/logout">↪ Sair</a>
+      </nav>
+    </div>
+  </aside>
+
+  <script>
+    // # w Abre ou fecha a navegação lateral compartilhada.
+    (() => {
+      const sidebar = document.getElementById('sidebar-preview');
+      const toggle = document.querySelector('.sidebar-toggle');
+      toggle.addEventListener('click', () => {
+        const isOpen = sidebar.classList.toggle('sidebar-open');
+        toggle.setAttribute('aria-expanded', String(isOpen));
+      });
+    })();
+  </script>
+</body>
+</html>
