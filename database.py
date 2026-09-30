@@ -461,16 +461,16 @@ def get_user_statistics(database_url: str, user_id: int) -> dict[str, Any]:
         watched_rows = cursor.fetchall()
 
         cursor.execute(
-            'SELECT COUNT(*) FROM user_movies WHERE user_id = %s AND favorite = 1',
+            'SELECT COUNT(*) AS count FROM user_movies WHERE user_id = %s AND favorite = 1',
             (user_id,),
         )
-        favorite_count = cursor.fetchone()[0]
+        favorite_count = cursor.fetchone()['count']
 
         cursor.execute(
-            'SELECT COUNT(*) FROM reviews WHERE user_id = %s',
+            'SELECT COUNT(*) AS count FROM reviews WHERE user_id = %s',
             (user_id,),
         )
-        review_count = cursor.fetchone()[0]
+        review_count = cursor.fetchone()['count']
         cursor.close()
     finally:
         connection.close()
