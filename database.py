@@ -1,29 +1,24 @@
-import sqlite3
-from pathlib import Path
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from typing import Any
 from werkzeug.security import generate_password_hash, check_password_hash
 
 
-# w Abre uma conexão configurada para retornar linhas acessíveis por nome.
-def get_connection(database_path: Path) -> sqlite3.Connection:
-    connection = sqlite3.connect(database_path)
-    connection.row_factory = sqlite3.Row
-    connection.execute('PRAGMA foreign_keys = ON')
+def get_connection(database_url: str):
+    connection = psycopg2.connect(database_url)
     return connection
 
 
-# w Versão do schema; a 3 acrescenta public_rating em movies para os filtros da Etapa 6.3.
 SCHEMA_VERSION = 3
 
-# w Schema com tmdb_id como chave; o imdb_id é opcional porque nem todo filme do TMDb possui um.
 SCHEMA_STATEMENTS = (
     '''
     CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         username TEXT NOT NULL UNIQUE,
         display_name TEXT NOT NULL,
         password_hash TEXT,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
     ''',
     '''
@@ -37,7 +32,7 @@ SCHEMA_STATEMENTS = (
         cached_poster_path TEXT,
         genre TEXT,
         public_rating REAL,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
     ''',
     '''
@@ -50,8 +45,8 @@ SCHEMA_STATEMENTS = (
             rating IS NULL
             OR (rating >= 0 AND rating <= 5 AND rating * 2 = CAST(rating * 2 AS INTEGER))
         ),
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (user_id, tmdb_id),
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
         FOREIGN KEY (tmdb_id) REFERENCES movies(tmdb_id) ON DELETE CASCADE
@@ -59,12 +54,12 @@ SCHEMA_STATEMENTS = (
     ''',
     '''
     CREATE TABLE IF NOT EXISTS reviews (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         user_id INTEGER NOT NULL,
         tmdb_id INTEGER NOT NULL,
         body TEXT NOT NULL CHECK (length(trim(body)) > 0),
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE (user_id, tmdb_id),
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
         FOREIGN KEY (tmdb_id) REFERENCES movies(tmdb_id) ON DELETE CASCADE
@@ -73,64 +68,42 @@ SCHEMA_STATEMENTS = (
 )
 
 
-# w Acrescenta a coluna public_rating sem mexer nos dados existentes, se ainda não existir.
-def _ensure_public_rating_column(connection: sqlite3.Connection) -> None:
-    columns = {row['name'] for row in connection.execute('PRAGMA table_info(movies)').fetchall()}
-    if 'public_rating' not in columns:
-        connection.execute('ALTER TABLE movies ADD COLUMN public_rating REAL')
-        connection.execute(f'PRAGMA user_version = {SCHEMA_VERSION}')
-        connection.commit()
-
-
-# w Cria o schema com tmdb_id em bancos novos e aplica migrações aditivas em bancos existentes.
-def init_database(database_path: Path) -> None:
-    database_path = Path(database_path)
-    database_path.parent.mkdir(parents=True, exist_ok=True)
-
-    connection = get_connection(database_path)
+def init_database(database_url: str) -> None:
+    connection = get_connection(database_url)
     try:
-        # w Se movies já existe, o banco é antigo ou já migrado; só migrate_to_tmdb_ids converte a chave.
-        has_movies = connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'movies'"
-        ).fetchone()
-        if has_movies:
-            _ensure_public_rating_column(connection)
-            return
-        connection.execute('BEGIN')
+        cursor = connection.cursor()
         for statement in SCHEMA_STATEMENTS:
-            connection.execute(statement)
-        connection.execute(f'PRAGMA user_version = {SCHEMA_VERSION}')
+            cursor.execute(statement)
         connection.commit()
+        cursor.close()
     finally:
         connection.close()
 
 
-# w Garante um tmdbID numérico e um título antes de qualquer escrita no banco.
 def _require_movie(movie: dict[str, Any]) -> None:
     tmdb_id = movie.get('tmdbID')
     if not isinstance(tmdb_id, int) or isinstance(tmdb_id, bool) or tmdb_id <= 0 or not movie.get('Title'):
         raise ValueError('O filme precisa de um tmdbID numérico e de Title.')
 
 
-# w Insere ou atualiza o filme pelo tmdb_id, sem apagar um imdb_id que já era conhecido.
-def _upsert_movie(connection: sqlite3.Connection, movie: dict[str, Any]) -> None:
+def _upsert_movie(cursor, movie: dict[str, Any]) -> None:
     _require_movie(movie)
-    connection.execute(
+    cursor.execute(
         '''
         INSERT INTO movies (
             tmdb_id, imdb_id, title, year, media_type, poster_url,
             cached_poster_path, genre, public_rating
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT(tmdb_id) DO UPDATE SET
-            imdb_id = COALESCE(excluded.imdb_id, movies.imdb_id),
-            title = excluded.title,
-            year = excluded.year,
-            media_type = excluded.media_type,
-            poster_url = excluded.poster_url,
-            cached_poster_path = excluded.cached_poster_path,
-            genre = excluded.genre,
-            public_rating = COALESCE(excluded.public_rating, movies.public_rating)
+            imdb_id = COALESCE(EXCLUDED.imdb_id, movies.imdb_id),
+            title = EXCLUDED.title,
+            year = EXCLUDED.year,
+            media_type = EXCLUDED.media_type,
+            poster_url = EXCLUDED.poster_url,
+            cached_poster_path = EXCLUDED.cached_poster_path,
+            genre = EXCLUDED.genre,
+            public_rating = COALESCE(EXCLUDED.public_rating, movies.public_rating)
         ''',
         (
             movie['tmdbID'],
@@ -146,82 +119,89 @@ def _upsert_movie(connection: sqlite3.Connection, movie: dict[str, Any]) -> None
     )
 
 
-# w Salva os dados básicos de um filme sem criar registros duplicados.
-def save_movie(database_path: Path, movie: dict[str, Any]) -> None:
-    connection = get_connection(database_path)
+def save_movie(database_url: str, movie: dict[str, Any]) -> None:
+    connection = get_connection(database_url)
     try:
-        _upsert_movie(connection, movie)
+        cursor = connection.cursor()
+        _upsert_movie(cursor, movie)
         connection.commit()
+        cursor.close()
     finally:
         connection.close()
 
 
-# w Busca um filme pelo tmdb_id e devolve um dicionário pronto para a aplicação.
-def get_movie(database_path: Path, tmdb_id: int) -> dict[str, Any] | None:
-    connection = get_connection(database_path)
+def get_movie(database_url: str, tmdb_id: int) -> dict[str, Any] | None:
+    connection = get_connection(database_url)
     try:
-        row = connection.execute(
+        cursor = connection.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
             '''
             SELECT
-                tmdb_id AS tmdbID,
-                imdb_id AS imdbID,
-                title AS Title,
-                year AS Year,
-                media_type AS Type,
-                poster_url AS Poster,
-                cached_poster_path AS _poster,
-                genre AS Genre,
+                tmdb_id AS "tmdbID",
+                imdb_id AS "imdbID",
+                title AS "Title",
+                year AS "Year",
+                media_type AS "Type",
+                poster_url AS "Poster",
+                cached_poster_path AS "_poster",
+                genre AS "Genre",
                 public_rating
             FROM movies
-            WHERE tmdb_id = ?
+            WHERE tmdb_id = %s
             ''',
             (tmdb_id,),
-        ).fetchone()
+        )
+        row = cursor.fetchone()
+        cursor.close()
         return dict(row) if row else None
     finally:
         connection.close()
 
 
-# w Cria ou atualiza a senha somente quando a conta ainda não possui uma.
-def ensure_user_password(database_path: Path, username: str, password: str) -> None:
+def ensure_user_password(database_url: str, username: str, password: str) -> None:
     password_hash = generate_password_hash(password)
-    connection = get_connection(database_path)
+    connection = get_connection(database_url)
     try:
-        existing_user = connection.execute(
-            'SELECT id, password_hash FROM users WHERE lower(username) = lower(?)',
+        cursor = connection.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            'SELECT id, password_hash FROM users WHERE LOWER(username) = LOWER(%s)',
             (username,),
-        ).fetchone()
+        )
+        existing_user = cursor.fetchone()
         if existing_user:
             if existing_user['password_hash'] is None:
-                connection.execute(
-                    'UPDATE users SET password_hash = ? WHERE id = ?',
+                cursor.execute(
+                    'UPDATE users SET password_hash = %s WHERE id = %s',
                     (password_hash, existing_user['id']),
                 )
         else:
-            connection.execute(
+            cursor.execute(
                 '''
                 INSERT INTO users (username, display_name, password_hash)
-                VALUES (?, ?, ?)
+                VALUES (%s, %s, %s)
                 ''',
                 (username, username, password_hash),
             )
         connection.commit()
+        cursor.close()
     finally:
         connection.close()
 
 
-# w Valida usuário e senha sem expor a senha original ao restante da aplicação.
-def authenticate_user(database_path: Path, username: str, password: str) -> dict[str, Any] | None:
-    connection = get_connection(database_path)
+def authenticate_user(database_url: str, username: str, password: str) -> dict[str, Any] | None:
+    connection = get_connection(database_url)
     try:
-        row = connection.execute(
+        cursor = connection.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
             '''
             SELECT id, username, display_name, password_hash
             FROM users
-            WHERE lower(username) = lower(?)
+            WHERE LOWER(username) = LOWER(%s)
             ''',
-            (username.strip().casefold(),),
-        ).fetchone()
+            (username.strip(),),
+        )
+        row = cursor.fetchone()
+        cursor.close()
         if not row or not row['password_hash'] or not check_password_hash(row['password_hash'], password):
             return None
         return {
@@ -233,8 +213,7 @@ def authenticate_user(database_path: Path, username: str, password: str) -> dict
         connection.close()
 
 
-# w Cria uma conta com a senha protegida por hash e rejeita usuários duplicados.
-def create_user(database_path: Path, username: str, password: str) -> dict[str, Any]:
+def create_user(database_url: str, username: str, password: str) -> dict[str, Any]:
     username = username.strip()
     if len(username) < 2 or len(username) > 30:
         raise ValueError('O usuário precisa ter entre 2 e 30 caracteres.')
@@ -243,25 +222,29 @@ def create_user(database_path: Path, username: str, password: str) -> dict[str, 
     if not password:
         raise ValueError('A senha não pode ficar vazia.')
 
-    connection = get_connection(database_path)
+    connection = get_connection(database_url)
     try:
-        existing = connection.execute(
-            'SELECT 1 FROM users WHERE lower(username) = lower(?)',
+        cursor = connection.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            'SELECT 1 FROM users WHERE LOWER(username) = LOWER(%s)',
             (username,),
-        ).fetchone()
-        if existing:
+        )
+        if cursor.fetchone():
             raise ValueError('Este usuário já está em uso.')
 
-        cursor = connection.execute(
+        cursor.execute(
             '''
             INSERT INTO users (username, display_name, password_hash)
-            VALUES (?, ?, ?)
+            VALUES (%s, %s, %s)
+            RETURNING id
             ''',
             (username, username, generate_password_hash(password)),
         )
+        user_id = cursor.fetchone()['id']
         connection.commit()
+        cursor.close()
         return {
-            'id': cursor.lastrowid,
+            'id': user_id,
             'username': username,
             'display_name': username,
         }
@@ -269,39 +252,41 @@ def create_user(database_path: Path, username: str, password: str) -> dict[str, 
         connection.close()
 
 
-# w Retorna os dados públicos do perfil, sem expor o hash da senha.
-def get_user_profile(database_path: Path, user_id: int) -> dict[str, Any] | None:
-    connection = get_connection(database_path)
+def get_user_profile(database_url: str, user_id: int) -> dict[str, Any] | None:
+    connection = get_connection(database_url)
     try:
-        row = connection.execute(
-            'SELECT id, username, display_name, created_at FROM users WHERE id = ?',
+        cursor = connection.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            'SELECT id, username, display_name, created_at FROM users WHERE id = %s',
             (user_id,),
-        ).fetchone()
+        )
+        row = cursor.fetchone()
+        cursor.close()
         return dict(row) if row else None
     finally:
         connection.close()
 
 
-# w Atualiza o nome de exibição, mantendo o username (login) intacto.
-def update_display_name(database_path: Path, user_id: int, display_name: str) -> None:
+def update_display_name(database_url: str, user_id: int, display_name: str) -> None:
     display_name = display_name.strip()
     if len(display_name) < 2 or len(display_name) > 40:
         raise ValueError('O nome de exibição precisa ter entre 2 e 40 caracteres.')
 
-    connection = get_connection(database_path)
+    connection = get_connection(database_url)
     try:
-        connection.execute(
-            'UPDATE users SET display_name = ? WHERE id = ?',
+        cursor = connection.cursor()
+        cursor.execute(
+            'UPDATE users SET display_name = %s WHERE id = %s',
             (display_name, user_id),
         )
         connection.commit()
+        cursor.close()
     finally:
         connection.close()
 
 
-# w Só troca a senha depois de confirmar a senha atual, para evitar sequestro de sessão.
 def change_user_password(
-    database_path: Path,
+    database_url: str,
     user_id: int,
     current_password: str,
     new_password: str,
@@ -309,59 +294,66 @@ def change_user_password(
     if not new_password:
         raise ValueError('A nova senha não pode ficar vazia.')
 
-    connection = get_connection(database_path)
+    connection = get_connection(database_url)
     try:
-        row = connection.execute(
-            'SELECT password_hash FROM users WHERE id = ?',
+        cursor = connection.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            'SELECT password_hash FROM users WHERE id = %s',
             (user_id,),
-        ).fetchone()
+        )
+        row = cursor.fetchone()
         if not row or not row['password_hash'] or not check_password_hash(row['password_hash'], current_password):
             raise ValueError('Senha atual incorreta.')
-        connection.execute(
-            'UPDATE users SET password_hash = ? WHERE id = ?',
+        cursor.execute(
+            'UPDATE users SET password_hash = %s WHERE id = %s',
             (generate_password_hash(new_password), user_id),
         )
         connection.commit()
+        cursor.close()
     finally:
         connection.close()
 
 
-# w Exige a senha atual antes de apagar a conta; user_movies e reviews caem em cascata.
-def delete_user_account(database_path: Path, user_id: int, password: str) -> None:
-    connection = get_connection(database_path)
+def delete_user_account(database_url: str, user_id: int, password: str) -> None:
+    connection = get_connection(database_url)
     try:
-        row = connection.execute(
-            'SELECT password_hash FROM users WHERE id = ?',
+        cursor = connection.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            'SELECT password_hash FROM users WHERE id = %s',
             (user_id,),
-        ).fetchone()
+        )
+        row = cursor.fetchone()
         if not row or not row['password_hash'] or not check_password_hash(row['password_hash'], password):
             raise ValueError('Senha incorreta.')
-        connection.execute('DELETE FROM users WHERE id = ?', (user_id,))
+        cursor.execute('DELETE FROM users WHERE id = %s', (user_id,))
         connection.commit()
+        cursor.close()
     finally:
         connection.close()
 
 
-# w Retorna somente os filmes e dados pessoais do usuário autenticado.
-def get_user_library(database_path: Path, user_id: int) -> dict[int, dict[str, Any]]:
-    connection = get_connection(database_path)
+def get_user_library(database_url: str, user_id: int) -> dict[int, dict[str, Any]]:
+    connection = get_connection(database_url)
     try:
-        rows = connection.execute(
+        cursor = connection.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
             '''
             SELECT
-                m.tmdb_id AS tmdbID, m.imdb_id AS imdbID, m.title AS Title, m.year AS Year,
-                m.media_type AS Type, m.poster_url AS Poster,
-                m.cached_poster_path AS _poster, m.genre AS Genre,
+                m.tmdb_id AS "tmdbID", m.imdb_id AS "imdbID", m.title AS "Title", m.year AS "Year",
+                m.media_type AS "Type", m.poster_url AS "Poster",
+                m.cached_poster_path AS "_poster", m.genre AS "Genre",
                 m.public_rating,
                 um.favorite, um.watched, um.rating, r.body AS review,
                 r.updated_at AS review_updated_at
             FROM movies m
-            LEFT JOIN user_movies um ON um.tmdb_id = m.tmdb_id AND um.user_id = ?
-            LEFT JOIN reviews r ON r.user_id = ? AND r.tmdb_id = m.tmdb_id
+            LEFT JOIN user_movies um ON um.tmdb_id = m.tmdb_id AND um.user_id = %s
+            LEFT JOIN reviews r ON r.user_id = %s AND r.tmdb_id = m.tmdb_id
             WHERE um.user_id IS NOT NULL OR r.user_id IS NOT NULL
             ''',
             (user_id, user_id),
-        ).fetchall()
+        )
+        rows = cursor.fetchall()
+        cursor.close()
         return {
             row['tmdbID']: {
                 **dict(row),
@@ -374,35 +366,38 @@ def get_user_library(database_path: Path, user_id: int) -> dict[int, dict[str, A
         connection.close()
 
 
-# w Junta as mudanças em user_movies e reviews num histórico só, mais recente primeiro.
-# w Cada linha do banco vira um evento por vez (não por clique), pois é o que existe registrado.
-def get_user_activity(database_path: Path, user_id: int, limit: int = 50) -> list[dict[str, Any]]:
-    connection = get_connection(database_path)
+def get_user_activity(database_url: str, user_id: int, limit: int = 50) -> list[dict[str, Any]]:
+    connection = get_connection(database_url)
     try:
-        movie_rows = connection.execute(
+        cursor = connection.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
             '''
             SELECT
-                m.tmdb_id AS tmdbID, m.title AS Title, m.year AS Year,
-                m.cached_poster_path AS _poster, m.poster_url AS Poster,
+                m.tmdb_id AS "tmdbID", m.title AS "Title", m.year AS "Year",
+                m.cached_poster_path AS "_poster", m.poster_url AS "Poster",
                 um.favorite, um.watched, um.rating, um.updated_at AS timestamp
             FROM user_movies um
             JOIN movies m ON m.tmdb_id = um.tmdb_id
-            WHERE um.user_id = ?
+            WHERE um.user_id = %s
             ''',
             (user_id,),
-        ).fetchall()
-        review_rows = connection.execute(
+        )
+        movie_rows = cursor.fetchall()
+
+        cursor.execute(
             '''
             SELECT
-                m.tmdb_id AS tmdbID, m.title AS Title, m.year AS Year,
-                m.cached_poster_path AS _poster, m.poster_url AS Poster,
+                m.tmdb_id AS "tmdbID", m.title AS "Title", m.year AS "Year",
+                m.cached_poster_path AS "_poster", m.poster_url AS "Poster",
                 r.body AS review, r.updated_at AS timestamp
             FROM reviews r
             JOIN movies m ON m.tmdb_id = r.tmdb_id
-            WHERE r.user_id = ?
+            WHERE r.user_id = %s
             ''',
             (user_id,),
-        ).fetchall()
+        )
+        review_rows = cursor.fetchall()
+        cursor.close()
     finally:
         connection.close()
 
@@ -437,7 +432,6 @@ def get_user_activity(database_path: Path, user_id: int, limit: int = 50) -> lis
     return activity[:limit]
 
 
-# w Conta ocorrências de um campo separado por vírgula (gênero) e devolve o mais comum.
 def _most_common(values: list[str]) -> dict[str, Any] | None:
     counts: dict[str, int] = {}
     for value in values:
@@ -451,27 +445,33 @@ def _most_common(values: list[str]) -> dict[str, Any] | None:
     return {'name': name, 'count': counts[name]}
 
 
-# w Resume os números pessoais do usuário: assistidos, favoritos, notas, gênero/década preferidos.
-def get_user_statistics(database_path: Path, user_id: int) -> dict[str, Any]:
-    connection = get_connection(database_path)
+def get_user_statistics(database_url: str, user_id: int) -> dict[str, Any]:
+    connection = get_connection(database_url)
     try:
-        watched_rows = connection.execute(
+        cursor = connection.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
             '''
-            SELECT m.tmdb_id AS tmdbID, m.title AS Title, m.year AS Year, m.genre AS Genre, um.rating
+            SELECT m.tmdb_id AS "tmdbID", m.title AS "Title", m.year AS "Year", m.genre AS "Genre", um.rating
             FROM user_movies um
             JOIN movies m ON m.tmdb_id = um.tmdb_id
-            WHERE um.user_id = ? AND um.watched = 1
+            WHERE um.user_id = %s AND um.watched = 1
             ''',
             (user_id,),
-        ).fetchall()
-        favorite_count = connection.execute(
-            'SELECT COUNT(*) FROM user_movies WHERE user_id = ? AND favorite = 1',
+        )
+        watched_rows = cursor.fetchall()
+
+        cursor.execute(
+            'SELECT COUNT(*) FROM user_movies WHERE user_id = %s AND favorite = 1',
             (user_id,),
-        ).fetchone()[0]
-        review_count = connection.execute(
-            'SELECT COUNT(*) FROM reviews WHERE user_id = ?',
+        )
+        favorite_count = cursor.fetchone()[0]
+
+        cursor.execute(
+            'SELECT COUNT(*) FROM reviews WHERE user_id = %s',
             (user_id,),
-        ).fetchone()[0]
+        )
+        review_count = cursor.fetchone()[0]
+        cursor.close()
     finally:
         connection.close()
 
@@ -493,40 +493,44 @@ def get_user_statistics(database_path: Path, user_id: int) -> dict[str, Any]:
     }
 
 
-# w Compara os participantes da casa (por username, ver config.HOUSEHOLD_USERNAMES): quem
-# w assistiu mais, filmes em comum e maior divergência de nota. Outras contas do app ficam fora.
-def get_household_statistics(database_path: Path, usernames: tuple[str, ...]) -> dict[str, Any]:
-    placeholders = ','.join('?' for _ in usernames)
-    connection = get_connection(database_path)
+def get_household_statistics(database_url: str, usernames: tuple[str, ...]) -> dict[str, Any]:
+    connection = get_connection(database_url)
     try:
-        users = connection.execute(
-            f'SELECT id, display_name FROM users WHERE username IN ({placeholders}) ORDER BY display_name',
-            usernames,
-        ).fetchall()
-        per_user_counts = connection.execute(
-            f'''
+        cursor = connection.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            'SELECT id, display_name FROM users WHERE username IN %s ORDER BY display_name',
+            (usernames,),
+        )
+        users = cursor.fetchall()
+
+        cursor.execute(
+            '''
             SELECT
                 u.id AS user_id, u.display_name,
                 COUNT(*) FILTER (WHERE um.watched = 1) AS watched_count,
                 COUNT(*) FILTER (WHERE um.favorite = 1) AS favorite_count
             FROM users u
             LEFT JOIN user_movies um ON um.user_id = u.id
-            WHERE u.username IN ({placeholders})
+            WHERE u.username IN %s
             GROUP BY u.id
             ORDER BY watched_count DESC, u.display_name
             ''',
-            usernames,
-        ).fetchall()
-        watched_rows = connection.execute(
-            f'''
-            SELECT m.tmdb_id AS tmdbID, m.title AS Title, u.display_name, um.rating
+            (usernames,),
+        )
+        per_user_counts = cursor.fetchall()
+
+        cursor.execute(
+            '''
+            SELECT m.tmdb_id AS "tmdbID", m.title AS "Title", u.display_name, um.rating
             FROM user_movies um
             JOIN movies m ON m.tmdb_id = um.tmdb_id
             JOIN users u ON u.id = um.user_id
-            WHERE um.watched = 1 AND u.username IN ({placeholders})
+            WHERE um.watched = 1 AND u.username IN %s
             ''',
-            usernames,
-        ).fetchall()
+            (usernames,),
+        )
+        watched_rows = cursor.fetchall()
+        cursor.close()
     finally:
         connection.close()
 
@@ -565,39 +569,40 @@ def get_household_statistics(database_path: Path, usernames: tuple[str, ...]) ->
     }
 
 
-# w Igual a get_user_activity, mas dos participantes da casa juntos (por username, ver
-# w config.HOUSEHOLD_USERNAMES), com o nome de quem fez o quê. Serve para o resumo da /home;
-# w a versão pessoal em get_user_activity segue usada em /atividade.
-def get_household_activity(database_path: Path, usernames: tuple[str, ...], limit: int = 10) -> list[dict[str, Any]]:
-    placeholders = ','.join('?' for _ in usernames)
-    connection = get_connection(database_path)
+def get_household_activity(database_url: str, usernames: tuple[str, ...], limit: int = 10) -> list[dict[str, Any]]:
+    connection = get_connection(database_url)
     try:
-        movie_rows = connection.execute(
-            f'''
+        cursor = connection.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            '''
             SELECT
-                m.tmdb_id AS tmdbID, m.title AS Title, m.year AS Year,
-                m.cached_poster_path AS _poster, m.poster_url AS Poster,
+                m.tmdb_id AS "tmdbID", m.title AS "Title", m.year AS "Year",
+                m.cached_poster_path AS "_poster", m.poster_url AS "Poster",
                 u.display_name, um.favorite, um.watched, um.rating, um.updated_at AS timestamp
             FROM user_movies um
             JOIN movies m ON m.tmdb_id = um.tmdb_id
             JOIN users u ON u.id = um.user_id
-            WHERE u.username IN ({placeholders})
+            WHERE u.username IN %s
             ''',
-            usernames,
-        ).fetchall()
-        review_rows = connection.execute(
-            f'''
+            (usernames,),
+        )
+        movie_rows = cursor.fetchall()
+
+        cursor.execute(
+            '''
             SELECT
-                m.tmdb_id AS tmdbID, m.title AS Title, m.year AS Year,
-                m.cached_poster_path AS _poster, m.poster_url AS Poster,
+                m.tmdb_id AS "tmdbID", m.title AS "Title", m.year AS "Year",
+                m.cached_poster_path AS "_poster", m.poster_url AS "Poster",
                 u.display_name, r.body AS review, r.updated_at AS timestamp
             FROM reviews r
             JOIN movies m ON m.tmdb_id = r.tmdb_id
             JOIN users u ON u.id = r.user_id
-            WHERE u.username IN ({placeholders})
+            WHERE u.username IN %s
             ''',
-            usernames,
-        ).fetchall()
+            (usernames,),
+        )
+        review_rows = cursor.fetchall()
+        cursor.close()
     finally:
         connection.close()
 
@@ -634,9 +639,8 @@ def get_household_activity(database_path: Path, usernames: tuple[str, ...], limi
     return activity[:limit]
 
 
-# w Salva o filme e o estado pessoal em uma transação curta e consistente.
 def save_user_movie_state(
-    database_path: Path,
+    database_url: str,
     user_id: int,
     movie: dict[str, Any],
     favorite: bool,
@@ -647,49 +651,52 @@ def save_user_movie_state(
     if rating is not None and (rating < 0 or rating > 5 or rating * 2 != int(rating * 2)):
         raise ValueError('A nota precisa estar entre 0 e 5, em passos de 0,5.')
 
-    connection = get_connection(database_path)
+    connection = get_connection(database_url)
     try:
-        _upsert_movie(connection, movie)
-        connection.execute(
+        cursor = connection.cursor(cursor_factory=RealDictCursor)
+        _upsert_movie(cursor, movie)
+        cursor.execute(
             '''
             INSERT INTO user_movies (user_id, tmdb_id, favorite, watched, rating)
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT(user_id, tmdb_id) DO UPDATE SET
-                favorite = excluded.favorite, watched = excluded.watched,
-                rating = excluded.rating, updated_at = CURRENT_TIMESTAMP
+                favorite = EXCLUDED.favorite, watched = EXCLUDED.watched,
+                rating = EXCLUDED.rating, updated_at = CURRENT_TIMESTAMP
             ''',
             (user_id, movie['tmdbID'], int(favorite), int(watched), rating),
         )
         connection.commit()
+        cursor.close()
     finally:
         connection.close()
-    return get_user_library(database_path, user_id)[movie['tmdbID']]
+    return get_user_library(database_url, user_id)[movie['tmdbID']]
 
 
-# w Cria, atualiza ou remove a review do filme do usuário autenticado.
-def save_user_review(database_path: Path, user_id: int, movie: dict[str, Any], review: str) -> None:
+def save_user_review(database_url: str, user_id: int, movie: dict[str, Any], review: str) -> None:
     _require_movie(movie)
     review = review.strip()
     if len(review) > 2000:
         raise ValueError('A review não pode ultrapassar 2.000 caracteres.')
 
-    connection = get_connection(database_path)
+    connection = get_connection(database_url)
     try:
-        _upsert_movie(connection, movie)
+        cursor = connection.cursor()
+        _upsert_movie(cursor, movie)
         if review:
-            connection.execute(
+            cursor.execute(
                 '''
-                INSERT INTO reviews (user_id, tmdb_id, body) VALUES (?, ?, ?)
+                INSERT INTO reviews (user_id, tmdb_id, body) VALUES (%s, %s, %s)
                 ON CONFLICT(user_id, tmdb_id) DO UPDATE SET
-                    body = excluded.body, updated_at = CURRENT_TIMESTAMP
+                    body = EXCLUDED.body, updated_at = CURRENT_TIMESTAMP
                 ''',
                 (user_id, movie['tmdbID'], review),
             )
         else:
-            connection.execute(
-                'DELETE FROM reviews WHERE user_id = ? AND tmdb_id = ?',
+            cursor.execute(
+                'DELETE FROM reviews WHERE user_id = %s AND tmdb_id = %s',
                 (user_id, movie['tmdbID']),
             )
         connection.commit()
+        cursor.close()
     finally:
         connection.close()

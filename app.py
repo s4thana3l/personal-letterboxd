@@ -2,7 +2,7 @@ from functools import wraps
 from flask import Flask, jsonify, redirect, request, send_from_directory, render_template, session, url_for
 import requests
 from pathlib import Path
-from config import DATABASE_PATH, CACHE_DIR, HOST, PORT, HOUSEHOLD_USERNAMES, SECRET_KEY, TMDB_API_KEY, TMDB_URL
+from config import DATABASE_URL, CACHE_DIR, HOST, PORT, HOUSEHOLD_USERNAMES, SECRET_KEY, TMDB_API_KEY, TMDB_URL
 from database import (
     authenticate_user,
     change_user_password,
@@ -31,8 +31,8 @@ poster_cache = PosterCache(CACHE_DIR)
 
 # Cria a pasta de posters na inicialização caso ela ainda não exista.
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
-init_database(DATABASE_PATH)
-ensure_user_password(DATABASE_PATH, 'Nathan', 'nathan')
+init_database(DATABASE_URL)
+ensure_user_password(DATABASE_URL, 'Nathan', 'nathan')
 
 
 # Centraliza o formato das respostas de erro para o frontend.
@@ -71,8 +71,8 @@ def index():
 def home():
     return render_template(
         'index.html',
-        stats=get_user_statistics(DATABASE_PATH, current_user_id()),
-        household_activity=get_household_activity(DATABASE_PATH, HOUSEHOLD_USERNAMES, limit=6),
+        stats=get_user_statistics(DATABASE_URL, current_user_id()),
+        household_activity=get_household_activity(DATABASE_URL, HOUSEHOLD_USERNAMES, limit=6),
     )
 
 
@@ -81,7 +81,7 @@ def home():
 def login():
     if request.method == 'POST':
         user = authenticate_user(
-            DATABASE_PATH,
+            DATABASE_URL,
             request.form.get('username', ''),
             request.form.get('password', ''),
         )
@@ -111,7 +111,7 @@ def register():
                 username=username,
             ), 400
         try:
-            user = create_user(DATABASE_PATH, username, password)
+            user = create_user(DATABASE_URL, username, password)
         except ValueError as error:
             return render_template(
                 'register.html',
@@ -139,9 +139,9 @@ def logout():
 def profile():
     return render_template(
         'profile.html',
-        profile=get_user_profile(DATABASE_PATH, current_user_id()),
-        stats=get_user_statistics(DATABASE_PATH, current_user_id()),
-        household=get_household_statistics(DATABASE_PATH, HOUSEHOLD_USERNAMES),
+        profile=get_user_profile(DATABASE_URL, current_user_id()),
+        stats=get_user_statistics(DATABASE_URL, current_user_id()),
+        household=get_household_statistics(DATABASE_URL, HOUSEHOLD_USERNAMES),
     )
 
 
@@ -149,7 +149,7 @@ def profile():
 @app.route('/perfil/conta')
 @login_required
 def account():
-    return render_template('account.html', profile=get_user_profile(DATABASE_PATH, current_user_id()))
+    return render_template('account.html', profile=get_user_profile(DATABASE_URL, current_user_id()))
 
 
 # w Atualiza o nome de exibição do usuário autenticado.
@@ -157,7 +157,7 @@ def account():
 @login_required
 def profile_display_name():
     try:
-        update_display_name(DATABASE_PATH, current_user_id(), request.form.get('display_name', ''))
+        update_display_name(DATABASE_URL, current_user_id(), request.form.get('display_name', ''))
         success = 'Nome de exibição atualizado.'
         error = None
     except ValueError as err:
@@ -165,7 +165,7 @@ def profile_display_name():
         error = str(err)
     return render_template(
         'account.html',
-        profile=get_user_profile(DATABASE_PATH, current_user_id()),
+        profile=get_user_profile(DATABASE_URL, current_user_id()),
         name_error=error,
         name_success=success,
     )
@@ -184,7 +184,7 @@ def profile_password():
     else:
         try:
             change_user_password(
-                DATABASE_PATH,
+                DATABASE_URL,
                 current_user_id(),
                 request.form.get('current_password', ''),
                 new_password,
@@ -194,7 +194,7 @@ def profile_password():
             error = str(err)
     return render_template(
         'account.html',
-        profile=get_user_profile(DATABASE_PATH, current_user_id()),
+        profile=get_user_profile(DATABASE_URL, current_user_id()),
         password_error=error,
         password_success=success,
     )
@@ -205,11 +205,11 @@ def profile_password():
 @login_required
 def profile_delete():
     try:
-        delete_user_account(DATABASE_PATH, current_user_id(), request.form.get('password', ''))
+        delete_user_account(DATABASE_URL, current_user_id(), request.form.get('password', ''))
     except ValueError as err:
         return render_template(
             'account.html',
-            profile=get_user_profile(DATABASE_PATH, current_user_id()),
+            profile=get_user_profile(DATABASE_URL, current_user_id()),
             delete_error=str(err),
         )
     session.clear()
@@ -230,7 +230,7 @@ def collection_page(collection_type):
 @app.route('/atividade')
 @login_required
 def activity():
-    return render_template('activity.html', activity=get_user_activity(DATABASE_PATH, current_user_id()))
+    return render_template('activity.html', activity=get_user_activity(DATABASE_URL, current_user_id()))
 
 
 # Faz buscas por título e retorna uma lista de resultados.
@@ -323,7 +323,7 @@ def api_director_movies(person_id):
 @app.route('/api/library')
 @login_required
 def api_library():
-    return jsonify(get_user_library(DATABASE_PATH, current_user_id()))
+    return jsonify(get_user_library(DATABASE_URL, current_user_id()))
 
 
 # w Busca o filme no TMDb pelo tmdb_id da URL; nunca confia em metadados vindos do cliente.
@@ -349,7 +349,7 @@ def api_library_movie(tmdb_id):
         return error
     try:
         saved = save_user_movie_state(
-            DATABASE_PATH,
+            DATABASE_URL,
             current_user_id(),
             movie,
             bool(payload.get('favorite')),
@@ -377,7 +377,7 @@ def api_review(tmdb_id):
     if error is not None:
         return error
     try:
-        save_user_review(DATABASE_PATH, current_user_id(), movie, review)
+        save_user_review(DATABASE_URL, current_user_id(), movie, review)
         return jsonify({'review': review.strip()})
     except ValueError as error:
         return error_response(400, 'invalid_review', str(error))

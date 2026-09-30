@@ -33,7 +33,7 @@ def get_secret_key(secret_key_path: Path) -> str:
 TMDB_API_KEY = get_tmdb_api_key()
 TMDB_URL = 'https://api.themoviedb.org/3'
 CACHE_DIR = Path(__file__).parent / 'cache' / 'posters'
-DATABASE_PATH = Path(__file__).parent / 'data' / 'app.sqlite3'
+DATABASE_URL = os.environ.get('DATABASE_URL', 'postgresql://user:password@localhost:5432/apifilmes')
 SECRET_KEY = get_secret_key(Path(__file__).parent / 'data' / 'secret_key.txt')
 
 # w Interface de rede em que o Flask escuta; 0.0.0.0 permite acesso pela VPN (Etapa 7), não só
